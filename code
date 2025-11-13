@@ -1,0 +1,109 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+
+
+def main():
+    #loading the dataset and clearing empty rows
+    file_path = "Stock_Data.csv"
+    df = pd.read_csv(file_path)
+    df = df.dropna()
+
+    #converting the date column to datetime for easier plotting/filtering
+    df["Date"] = pd.to_datetime(df["Date"])
+
+    #allow user to pick which stock they want to look at.
+    stocks = ["AAPL", "AMZN", "GOOGL", "MSFT", "NVDA"]
+    print("Available stocks:", ", ".join(stocks))
+    stock = input("Enter the stock symbol you want to predict (ex. AAPL): ").strip().upper()
+    while stock not in stocks:
+        stock = input("Invalid stock. Please enter on of the following: " + ", ".join(stocks) + ": ")
+    
+    #let user pick which date to look at.
+    date_column = df["Date"]
+    date_strings = date_column.astype(str)
+    all_dates = list(date_strings)
+    print("example date range: " + all_dates[0] + " to " + all_dates[-1])
+    date_input = input("Enter a date in YYYY-MM-DD format to make a prediction for that stock: ").strip()
+    #note: Some of the dates that are in the range are still invalid, due to things like holidays/weekend or null values
+    #So whee testing if u pick a random date sometimes it still might be invalid even tho it falls in the correct range
+    while date_input not in all_dates:
+        date_input = input("Invalid date. Please enter a valid date from the dataset (YYYY-MM-DD): ").strip()
+    #make sure to change user input to datetime as well
+    date_selected = pd.to_datetime(date_input)
+
+    #creating a new column that computes how much the stock's closing price changed the next day by subtracting today's close from the next days close
+    target_col = stock + "_Change_Tomorrow"
+    df[target_col] = df["Close_" + stock].shift(-1) - df["Close_" + stock]
+    df = df.dropna() #had to drop last row bc it won't have a tomorrow to compare against
+
+    #collecting just the columns we need, i.e. ones related to price/volume info
+    feature_cols = []
+    for col in df.columns:
+        if stock in col and ("Open_" in col or "High_" in col or "Low_" in col or "Close_" in col or "Volume_" in col):
+            feature_cols.append(col)
+
+    #splitting data into training set that does not include selected Date
+    df_train = df[df["Date"] != date_selected]
+    df_test_row = df[df["Date"] == date_selected]
+
+    #feature and target variables for training/testing
+    X_train = df_train[feature_cols]
+    y_train = df_train[target_col]
+    X_test = df_test_row[feature_cols]
+    y_test = df_test_row[target_col].values[0] #actual change for selected date
+
+    scaler = StandardScaler()
+    scaler.fit(X_train)
+    X_train_scaled = scaler.transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    #Using regressor to predict price change of stocks
+    model = MLPRegressor(hidden_layer_sizes=(10, 10), max_iter = 1000, random_state = 100)
+    model.fit(X_train_scaled, y_train)
+
+    prediction = model.predict(X_test_scaled)[0]
+
+    if prediction > 0:
+        print("Stock is expected to go UP")
+    else:
+        print("Stock is expected to go DOWN")
+
+    #making graph of historical closing price w/ marker at selected date 
+    col_to_plot = "Close_" + stock
+    fig1, ax1 = plt.subplots(figsize = (10, 4))
+
+    ax1.plot(df["Date"], df[col_to_plot], color = "blue")
+    predicted_price = df[df["Date"] == date_selected][col_to_plot].values[0]
+    ax1.plot(date_selected, predicted_price, marker = 'o', color = "orange", label = "Prediction Date")
+    #marking prediction date
+
+    ax1.set_title(col_to_plot + " over time with Prediction Date")
+    ax1.set_xlabel("Date")
+    ax1.set_ylabel("Price")
+    ax1.legend()
+    fig1.tight_layout()
+
+    fig1.savefig("hist_price_plot.png")
+    print("Historical price plot saved to png")
+
+    #create bar chart comparing prediction vs actual for plot no 2
+
+    fig2, ax2 = plt.subplots()
+    bars = ["Actual Change", "Predicted Change"]
+    heights = [y_test, prediction]
+    colors = ["blue", "orange"]
+
+    ax2.bar(bars, heights, color = colors)
+    ax2.set_title("Price change Prediction vs Actual for " + stock + " on " + date_input)
+    ax2.set_ylabel("Price Change in $")
+    fig2.tight_layout()
+
+    fig2.savefig("pred_vs_actual.png")
+    print("Saved prediction vs actual bar chart to png")
+
+
+if __name__ == "__main__":
+    main()
